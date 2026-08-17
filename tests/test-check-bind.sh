@@ -34,5 +34,7 @@ expect_status 1 "expected 127.0.0.1:8080" --address 127.0.0.1 --port 8080 --snap
 expect_status 1 "no TCP listener" --address 127.0.0.1 --port 8080 --snapshot "$fixtures/missing-port.txt"
 expect_status 2 "must be between" --address 127.0.0.1 --port 70000 --snapshot "$fixtures/exact-ipv4.txt"
 expect_status 2 "literal address" --address '$(id)' --port 8080 --snapshot "$fixtures/exact-ipv4.txt"
+expect_status 2 "invalid address" --address 127.0.0.1 --port 8080 --snapshot "$fixtures/malicious-snapshot.txt"
+expect_status 2 "not a readable file" --address 127.0.0.1 --port 8080 --snapshot "$fixtures/does-not-exist.txt"
 
 printf 'PASS: %s deterministic checks\n' "$passes"

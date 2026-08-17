@@ -74,7 +74,7 @@ Use `--snapshot -` to read from standard input.
 make test
 ```
 
-The test suite covers exact IPv4 and IPv6 listeners, wildcard exposure, a wrong specific address, a missing port and invalid input.
+The test suite covers exact IPv4 and IPv6 listeners, wildcard exposure, a wrong specific address, a missing port, invalid input and hostile snapshot text.
 
 ## Exit codes
 

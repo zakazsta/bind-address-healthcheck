@@ -57,10 +57,17 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n $address ]] || die "--address is required"
-[[ $address =~ ^[0-9A-Fa-f:.%*]+$ ]] || die "--address must be a literal address from ss"
+literal_address_pattern='^([0-9A-Fa-f:.]+(%[A-Za-z0-9_.-]+)?|\*)$'
+[[ $address =~ $literal_address_pattern ]] || die "--address must be a literal address from ss"
 [[ $port =~ ^[0-9]+$ ]] || die "--port must be numeric"
 (( 10#$port >= 1 && 10#$port <= 65535 )) || die "--port must be between 1 and 65535"
 port=$((10#$port))
+
+if [[ -n $snapshot && $snapshot != - ]]; then
+  [[ -f $snapshot && -r $snapshot ]] || die "snapshot is not a readable file"
+elif [[ -z $snapshot ]]; then
+  command -v ss >/dev/null 2>&1 || die "ss is required; install iproute2 or use --snapshot"
+fi
 
 declare -A listener_set=()
 
@@ -69,11 +76,9 @@ read_listeners() {
     if [[ $snapshot == - ]]; then
       cat
     else
-      [[ -f $snapshot && -r $snapshot ]] || die "snapshot is not a readable file"
       command cat -- "$snapshot"
     fi
   else
-    command -v ss >/dev/null 2>&1 || die "ss is required; install iproute2 or use --snapshot"
     command ss -H -ltn
   fi
 }
@@ -89,6 +94,7 @@ while IFS= read -r line; do
   local_address=${local_address#[}
   local_address=${local_address%]}
   [[ -n $local_address ]] || continue
+  [[ $local_address =~ $literal_address_pattern ]] || die "listener input contains an invalid address"
   listener_set["$local_address"]=1
 done < <(read_listeners)
 
