@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: check-bind --address ADDRESS --port PORT [--snapshot FILE|-]
+
+Verify that a TCP port is listening only on the expected local address.
+
+Options:
+  --address ADDRESS  Literal address as shown by ss, for example 127.0.0.1 or ::1
+  --port PORT        Numeric TCP port from 1 to 65535
+  --snapshot FILE    Read synthetic or saved ss output instead of running ss
+  -h, --help         Show this help
+
+Exit codes:
+  0  Exact listener only
+  1  Missing, wildcard, or additional listener
+  2  Invalid input or missing dependency
+EOF
+}
+
+die() {
+  printf 'ERROR: %s\n' "$1" >&2
+  exit 2
+}
+
+address=
+port=
+snapshot=
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --address)
+      [[ $# -ge 2 ]] || die "--address requires a value"
+      address=$2
+      shift 2
+      ;;
+    --port)
+      [[ $# -ge 2 ]] || die "--port requires a value"
+      port=$2
+      shift 2
+      ;;
+    --snapshot)
+      [[ $# -ge 2 ]] || die "--snapshot requires a file or -"
+      snapshot=$2
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ -n $address ]] || die "--address is required"
+[[ $address =~ ^[0-9A-Fa-f:.%*]+$ ]] || die "--address must be a literal address from ss"
+[[ $port =~ ^[0-9]+$ ]] || die "--port must be numeric"
+(( 10#$port >= 1 && 10#$port <= 65535 )) || die "--port must be between 1 and 65535"
+port=$((10#$port))
+
+declare -A listener_set=()
+
+read_listeners() {
+  if [[ -n $snapshot ]]; then
+    if [[ $snapshot == - ]]; then
+      cat
+    else
+      [[ -f $snapshot && -r $snapshot ]] || die "snapshot is not a readable file"
+      command cat -- "$snapshot"
+    fi
+  else
+    command -v ss >/dev/null 2>&1 || die "ss is required; install iproute2 or use --snapshot"
+    command ss -H -ltn
+  fi
+}
+
+while IFS= read -r line; do
+  read -r state _recv_q _send_q local_endpoint _peer_endpoint _rest <<<"$line"
+  [[ $state == LISTEN && -n ${local_endpoint:-} ]] || continue
+
+  local_port=${local_endpoint##*:}
+  [[ $local_port == "$port" ]] || continue
+
+  local_address=${local_endpoint%:*}
+  local_address=${local_address#[}
+  local_address=${local_address%]}
+  [[ -n $local_address ]] || continue
+  listener_set["$local_address"]=1
+done < <(read_listeners)
+
+if [[ ${#listener_set[@]} -eq 0 ]]; then
+  printf 'FAIL: no TCP listener found on port %s\n' "$port" >&2
+  exit 1
+fi
+
+for observed in "${!listener_set[@]}"; do
+  case "$observed" in
+    0.0.0.0|::|\*)
+      if [[ $observed != "$address" ]]; then
+        printf 'FAIL: wildcard listener %s:%s conflicts with expected %s:%s\n' \
+          "$observed" "$port" "$address" "$port" >&2
+        exit 1
+      fi
+      ;;
+  esac
+done
+
+if [[ -z ${listener_set[$address]+present} ]]; then
+  printf 'FAIL: expected %s:%s, observed' "$address" "$port" >&2
+  for observed in "${!listener_set[@]}"; do
+    printf ' %s:%s' "$observed" "$port" >&2
+  done
+  printf '\n' >&2
+  exit 1
+fi
+
+if [[ ${#listener_set[@]} -ne 1 ]]; then
+  printf 'FAIL: additional listener found on TCP port %s:' "$port" >&2
+  for observed in "${!listener_set[@]}"; do
+    [[ $observed == "$address" ]] || printf ' %s:%s' "$observed" "$port" >&2
+  done
+  printf '\n' >&2
+  exit 1
+fi
+
+printf 'PASS: %s:%s is the only listener on TCP port %s\n' "$address" "$port" "$port"

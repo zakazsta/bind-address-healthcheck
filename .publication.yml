@@ -1,0 +1,6 @@
+schema_version: 1
+history_origin: clean-export
+contains_real_credentials: false
+contains_client_data: false
+contains_private_infrastructure: false
+owner_approved: true
